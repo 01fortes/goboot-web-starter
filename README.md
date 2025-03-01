@@ -1,16 +1,18 @@
 # GoBooot Web Starter
 
-A production-ready web starter for the GoBooot framework that provides:
+A lightweight web application framework built on top of the GoBooot dependency injection container.
 
-- HTTP server with graceful shutdown
-- Simple router implementation with middleware support
-- Common middleware implementations (logging, recovery, CORS)
-- Configurable server settings
-- Support for multiple servers
-- Conditional activation
-- Component-based architecture with proper lifecycle
+## Features
+
+- Simple and extensible web server setup
+- Configuration via environment variables or programmatic settings
+- Support for middleware and custom routers
+- Graceful shutdown handling
+- Integration with the GoBooot container system
 
 ## Installation
+
+Add the package to your Go project:
 
 ```bash
 go get github.com/01fortes/goboot-web-starter
@@ -18,236 +20,177 @@ go get github.com/01fortes/goboot-web-starter
 
 ## Quick Start
 
+### Basic Usage
+
 ```go
 package main
 
 import (
-	"net/http"
-
-	"github.com/01fortes/goboot-web-starter/pkg/starter"
-	"github.com/01fortes/goboot/pkg/boot"
-	"github.com/01fortes/goboot/pkg/container"
+    "log/slog"
+    "net/http"
+    "os"
+    
+    "github.com/01fortes/goboot-web-starter/pkg/starter"
+    "github.com/01fortes/goboot-web-starter/pkg/starter/router"
+    "github.com/01fortes/goboot/pkg/boot"
+    "github.com/01fortes/goboot/pkg/container"
 )
 
 func main() {
-	app := boot.New(func(builder container.ContextBuilder) {
-		// Register the web starter
-		builder.RegisterStarter(starter.NewWebStarter())
-
-		// Register route handlers
-		builder.RegisterComponent(container.NewComponent("routeConfig", nil).
-			WithInitializer(func(ctx container.ApplicationContext) error {
-				// Get router from container
-				var router starter.Router
-				if err := ctx.GetComponent(&router); err != nil {
-					return err
-				}
-
-				// Add middleware
-				router.Use(starter.LoggerMiddleware)
-				router.Use(starter.RecoveryMiddleware)
-
-				// Register routes
-				router.Handle("GET", "/hello", func(w http.ResponseWriter, r *http.Request) {
-					w.Write([]byte("Hello, World!"))
-				})
-
-				return nil
-			}))
-	})
-
-	// Run the application
-	app.Run()
-}
-```
-
-## Component-Based Architecture
-
-The library follows the GoBooot component model:
-
-1. **Components**: Implement required interfaces:
-   - `container.Component` - Basic component interface
-   - `container.LifecycleComponent` - For components with lifecycle (start/stop)
-
-2. **Component Registration**: Components are registered and wired through the container:
-   ```go
-   // Register components directly
-   configComponent := starter.NewConfigComponent("webConfig", customConfig)
-   routerComponent := starter.NewRouterComponent("webRouter", customRouter)
-   serverComponent := starter.NewWebServerComponent("webServer", config, "webRouter")
-   
-   builder.RegisterComponent(configComponent)
-   builder.RegisterComponent(routerComponent)
-   builder.RegisterComponent(serverComponent)
-   ```
-
-3. **Lifecycle Management**: Components are properly started and stopped:
-   - `Init`: Get dependencies from container
-   - `Start`: Set up and start servers
-   - `Stop`: Gracefully shut down servers
-
-## Starters
-
-The library provides different starters to register components:
-
-1. **Basic Starter**: Registers default components
-   ```go
-   builder.RegisterStarter(starter.NewWebStarter())
-   ```
-
-2. **Configurable Starter**: Customizes components with options
-   ```go
-   builder.RegisterStarter(starter.NewConfigurableWebStarter(
-       starter.WithServerConfig(customConfig),
-       starter.WithCustomRouter(routerFactory),
-       starter.WithCustomComponentNames("myConfig", "myRouter", "myServer"),
-   ))
-   ```
-
-3. **Conditional Starter**: Only activates when conditions are met
-   ```go
-   builder.RegisterStarter(starter.WithWebEnabled())
-   builder.RegisterStarter(starter.WithPortVariable("SERVER_PORT"))
-   ```
-
-4. **Composite Starter**: Combines multiple starters
-   ```go
-   builder.RegisterStarter(starter.WebServerPair(
-       8080, 9090,            // Web port, API port
-       "webRouter", "apiRouter", // Router names
-       "webServer", "apiServer", // Server names
-   ))
-   ```
-
-## Advanced Configuration
-
-The web starter can be configured in multiple ways:
-
-### Custom Server Config
-
-```go
-// Register custom server config
-serverConfig := starter.ServerConfig{
-	Port:                   3000,
-	ReadTimeout:            10 * time.Second,
-	WriteTimeout:           15 * time.Second,
-	IdleTimeout:            120 * time.Second,
-	ShutdownTimeout:        60 * time.Second,
-	EnableGracefulShutdown: true,
+    // Configure logging
+    slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+    
+    // Create a new application
+    app := boot.New(func(builder container.ContextBuilder) {
+        // Set server port
+        builder.RegisterVariable("server.port", "8080")
+        
+        // Register the web starter
+        builder.RegisterStarter(starter.NewWebStarter())
+        
+        // Register your router implementation
+        builder.RegisterComponent(&YourRouter{})
+    })
+    
+    // Get the application context
+    ctx := app.GetContainer()
+    
+    // Get the router to add routes and middleware
+    var httpRouter router.Router
+    if err := ctx.GetComponent(&httpRouter); err != nil {
+        slog.Error("Failed to get router", "error", err)
+        os.Exit(1)
+    }
+    
+    // Add routes
+    httpRouter.Handle(http.MethodGet, "/", func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte("Hello, World!"))
+    })
+    
+    // Run the application
+    slog.Info("Starting application")
+    app.Run()
 }
 
-// Create config component
-configComponent := starter.NewConfigComponent("webServerConfig", serverConfig)
-builder.RegisterComponent(configComponent)
+// Implement your router
+type YourRouter struct {}
+
+// Implement the router.Router interface
+// ...
 ```
 
-### Custom Router
+## Documentation
+
+### Core Components
+
+#### WebStarter
+
+The `WebStarter` is the main entry point for the web server component. It registers the necessary components in the GoBooot container system.
 
 ```go
-// Create custom router
-customRouter := MyCustomRouter()
-
-// Register router component
-routerComponent := starter.NewRouterComponent("webRouter", customRouter)
-builder.RegisterComponent(routerComponent)
-```
-
-### Multiple Servers
-
-You can run multiple servers at the same time (e.g. API server and metrics server):
-
-```go
-// Register primary web server
 builder.RegisterStarter(starter.NewWebStarter())
-
-// Register a second server directly using components
-metricsConfig := starter.ServerConfig{Port: 9090}
-metricsRouter := starter.NewSimpleRouter()
-
-// Register router component
-builder.RegisterComponent(starter.NewRouterComponent("metricsRouter", metricsRouter))
-
-// Configure metrics routes
-metricsRouter.Handle("GET", "/metrics", handleMetrics)
-
-// Create server component 
-metricsServerComponent := starter.NewWebServerComponent(
-    "metricsServer", 
-    metricsConfig, 
-    "metricsRouter",
-)
-builder.RegisterComponent(metricsServerComponent)
 ```
 
-## Middleware
+#### Router
 
-Built-in middleware functions:
-
-- `LoggerMiddleware` - Logs request details
-- `RecoveryMiddleware` - Recovers from panics
-- `CORSMiddleware` - Adds CORS headers
-
-Custom middleware example:
+The `Router` interface defines the contract for HTTP routing. You need to implement this interface for your application.
 
 ```go
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if token == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		// Validate token...
-		next.ServeHTTP(w, r)
-	})
+type Router interface {
+    container.LifecycleComponent
+    http.Handler
+    Handle(method, path string, handler http.HandlerFunc)
+    Use(middleware ...Middleware)
 }
-
-// Apply middleware
-router.Use(AuthMiddleware)
 ```
 
-## Project Structure
+#### WebServer
 
-The starter follows SOLID principles with a modular design:
+The `WebServer` component is responsible for managing the HTTP server lifecycle. It's automatically registered by the `WebStarter`.
 
-- `config/` - Server configuration and components
-- `router/` - Router interface, implementation, and components
-- `server/` - Web server implementation and lifecycle components
-- `middleware/` - HTTP middleware functions
-- `starter.go` - Main facade that ties everything together
-- `factory.go` - Factory for creating customized starters
-- `conditional.go` - Conditional starters
-- `customized.go` - Customizable starters
-- `composite.go` - Composite starters
+### Configuration
 
-Read [DESIGN.md](docs/DESIGN.md) for more details on the architecture.
+The `WebServerConfig` component allows you to customize the web server behavior:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| server.port | HTTP server port | 8080 |
+| server.read-timeout | Request read timeout | 5s |
+| server.write-timeout | Response write timeout | 10s |
+| server.idle-timeout | Idle connection timeout | 60s |
+| server.shutdown-timeout | Graceful shutdown timeout | 30s |
+| server.web-server-enabled | Enable/disable the web server | true |
 
 ## Examples
 
-See the `examples` directory for complete examples:
+Check the [examples](./examples) directory for complete working examples.
 
-- `simple/` - Simple web server with basic router and middleware
-- `basic/` - Simple web server
-- `advanced/` - Advanced configuration with multiple servers and component usage
-- `rest-api/` - Complete REST API example
+## Router Implementation Guide
 
-You can run the simple example with:
+To use this library, you need to implement the `Router` interface. Here's an example using the standard library:
 
-```bash
-go run examples/simple/main.go
+```go
+package main
+
+import (
+    "context"
+    "net/http"
+    
+    "github.com/01fortes/goboot-web-starter/pkg/starter/router"
+    "github.com/01fortes/goboot/pkg/container"
+)
+
+// SimpleRouter is a basic implementation of the Router interface
+type SimpleRouter struct {
+    middleware []router.Middleware
+    mux        *http.ServeMux
+}
+
+func (r *SimpleRouter) Name() string {
+    return "DefaultHttpRouter"
+}
+
+func (r *SimpleRouter) Init(ctx container.ApplicationContext) error {
+    r.mux = http.NewServeMux()
+    return nil
+}
+
+func (r *SimpleRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    // Apply middleware chain
+    var handler http.Handler = r.mux
+    for i := len(r.middleware) - 1; i >= 0; i-- {
+        handler = r.middleware[i](handler)
+    }
+    
+    handler.ServeHTTP(w, req)
+}
+
+func (r *SimpleRouter) Use(middleware ...router.Middleware) {
+    r.middleware = append(r.middleware, middleware...)
+}
+
+func (r *SimpleRouter) Start(ctx context.Context) {
+    // No-op for this simple router
+}
+
+func (r *SimpleRouter) Stop(ctx context.Context) {
+    // No-op for this simple router
+}
+
+func (r *SimpleRouter) Handle(method string, path string, handler http.HandlerFunc) {
+    r.mux.HandleFunc(path, func(w http.ResponseWriter, req *http.Request) {
+        if req.Method != method {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        handler(w, req)
+    })
+}
+
+// Verify interface implementation
+var _ router.Router = (*SimpleRouter)(nil)
 ```
-
-## Production Readiness
-
-This starter includes features essential for production-ready web applications:
-
-1. **Component-Based**: Following GoBooot's component model with proper lifecycle
-2. **Graceful Shutdown**: Properly closes HTTP connections when shutting down
-3. **Configurable Timeouts**: Custom timeouts for read, write, and idle connections
-4. **Middleware Support**: Built-in and custom middleware for logging, security, etc.
-5. **Multiple Servers**: Support for running multiple servers (e.g., API + metrics)
-6. **Conditional Activation**: Start servers only in specific environments
 
 ## License
 
-MIT
+[Add your license information here]
